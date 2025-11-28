@@ -1,33 +1,79 @@
+
 import { Node, Link, AlgorithmStep, DfsState } from '../types';
+import { SENSOR_CONFIG } from '../constants';
 import * as d3 from 'd3';
 
 export const getDistance = (n1: Node, n2: Node) => 
   Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
 
+const createNode = (id: number, x: number, y: number, status: Node['status'] = 'active'): Node => ({
+  id, x, y,
+  energy: SENSOR_CONFIG.defaultEnergy,
+  maxEnergy: SENSOR_CONFIG.defaultEnergy,
+  range: SENSOR_CONFIG.defaultRange,
+  status: status
+});
+
+/**
+ * Spawns sleeping nodes specifically near discovered Articulation Points.
+ */
+export const spawnSleepingNodesForAPs = (nodes: Node[], apIds: Set<number>): Node[] => {
+  const newNodes = [...nodes];
+  let maxId = nodes.reduce((max, n) => Math.max(max, n.id), 0);
+
+  apIds.forEach(apId => {
+    const apNode = nodes.find(n => n.id === apId);
+    if (apNode) {
+      maxId++;
+      // Place sleeping node slightly offset
+      newNodes.push(createNode(maxId, apNode.x + 30, apNode.y + 30, 'sleeping'));
+    }
+  });
+
+  return newNodes;
+};
+
+/**
+ * Recalculates links based on physical proximity (Range)
+ * This makes the graph dynamic: if a node wakes up, it connects to everything in range.
+ */
+export const recalculateLinksBasedOnRange = (nodes: Node[]): Link[] => {
+  const links: Link[] = [];
+  const activeNodes = nodes.filter(n => n.status === 'active');
+
+  for (let i = 0; i < activeNodes.length; i++) {
+    for (let j = i + 1; j < activeNodes.length; j++) {
+      const n1 = activeNodes[i];
+      const n2 = activeNodes[j];
+      const dist = getDistance(n1, n2);
+      
+      // Connection criteria: Distance < Min(Range1, Range2)
+      if (dist <= Math.min(n1.range, n2.range)) {
+        links.push({ source: n1.id, target: n2.id });
+      }
+    }
+  }
+  return links;
+};
+
 /**
  * Calculates node positions using D3 Force Simulation
- * Useful for uploaded graphs that lack x/y coordinates
  */
-export const computeForceLayout = (nodes: {id: number}[], links: {source: number, target: number}[], width: number, height: number): { nodes: Node[], links: Link[] } => {
-  // Create copies to avoid mutation issues during simulation
-  const simNodes = nodes.map(n => ({ id: n.id, x: width/2, y: height/2 }));
-  const simLinks = links.map(l => ({ source: l.source, target: l.target }));
+export const computeForceLayout = (rawNodes: {id: number}[], rawLinks: {source: number, target: number}[], width: number, height: number): { nodes: Node[], links: Link[] } => {
+  const simNodes = rawNodes.map(n => ({ id: n.id, x: width/2, y: height/2 }));
+  const simLinks = rawLinks.map(l => ({ source: l.source, target: l.target }));
 
   const simulation = d3.forceSimulation(simNodes as any)
-    .force("link", d3.forceLink(simLinks).id((d: any) => d.id).distance(120))
-    .force("charge", d3.forceManyBody().strength(-400))
+    .force("link", d3.forceLink(simLinks).id((d: any) => d.id).distance(100))
+    .force("charge", d3.forceManyBody().strength(-300))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide(50));
+    .force("collide", d3.forceCollide(60));
 
-  // Run simulation synchronously to settle positions
-  simulation.tick(300); // 300 ticks is usually enough to stabilize
+  simulation.tick(300);
 
-  // Map back to our Node/Link types
-  const finalNodes: Node[] = simNodes.map((n: any) => ({
-    id: n.id,
-    x: Math.max(40, Math.min(width - 40, n.x)), // Clamp to bounds with padding
-    y: Math.max(40, Math.min(height - 40, n.y))
-  }));
+  const finalNodes: Node[] = simNodes.map((n: any) => 
+    createNode(n.id, Math.max(50, Math.min(width - 50, n.x)), Math.max(50, Math.min(height - 50, n.y)))
+  );
 
   const finalLinks: Link[] = simLinks.map((l: any) => ({
     source: typeof l.source === 'object' ? l.source.id : l.source,
@@ -37,16 +83,12 @@ export const computeForceLayout = (nodes: {id: number}[], links: {source: number
   return { nodes: finalNodes, links: finalLinks };
 };
 
-/**
- * Parsing Logic for Uploaded Files
- */
 export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nodes: {id: number}[], links: {source: number, target: number}[] } => {
   let rawLinks: {source: number, target: number}[] = [];
   
   if (type === 'json') {
     try {
       const data = JSON.parse(content);
-      // Support { links: [...] } or just [...]
       const linkArray = Array.isArray(data) ? data : (data.links || []);
       rawLinks = linkArray.map((l: any) => ({
         source: Number(l.source),
@@ -56,10 +98,8 @@ export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nod
       throw new Error("Invalid JSON");
     }
   } else {
-    // Text format: "0 1\n1 2" OR "0,1"
     const lines = content.trim().split(/\r?\n/);
     lines.forEach(line => {
-      // Split by comma or whitespace
       const parts = line.trim().split(/[\s,]+/);
       if (parts.length >= 2) {
         rawLinks.push({
@@ -70,14 +110,12 @@ export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nod
     });
   }
 
-  // Extract unique nodes from links
   const nodeSet = new Set<number>();
   rawLinks.forEach(l => {
     nodeSet.add(l.source);
     nodeSet.add(l.target);
   });
   
-  // Sort nodes by ID to ensure consistent processing order
   const nodes = Array.from(nodeSet).sort((a, b) => a - b).map(id => ({ id }));
   
   if (nodes.length === 0) {
@@ -88,59 +126,108 @@ export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nod
 };
 
 /**
- * Generates the butterfly/demo topology
+ * Generates the butterfly/demo topology WITHOUT default sleepers
  */
 export const generateScenario = (width: number, height: number): { nodes: Node[], links: Link[] } => {
   const cx = width / 2;
   const cy = height / 2;
   
+  // Standard Nodes
   const nodes: Node[] = [
-    { id: 0, x: cx, y: cy }, // Center
-    { id: 1, x: cx - 120, y: cy - 100 },
-    { id: 2, x: cx - 120, y: cy + 100 },
-    { id: 3, x: cx - 220, y: cy }, // Left-most
-    { id: 4, x: cx + 120, y: cy - 100 },
-    { id: 5, x: cx + 120, y: cy + 100 },
-    { id: 6, x: cx + 220, y: cy }, // Right-most
-    { id: 7, x: cx, y: cy - 180 }, // Top hanger
+    createNode(0, cx, cy),
+    createNode(1, cx - 120, cy - 100),
+    createNode(2, cx - 120, cy + 100),
+    createNode(3, cx - 220, cy),
+    createNode(4, cx + 120, cy - 100),
+    createNode(5, cx + 120, cy + 100),
+    createNode(6, cx + 220, cy),
+    createNode(7, cx, cy - 180),
   ];
 
-  const links: Link[] = [
-    { source: 0, target: 1 }, { source: 0, target: 2 }, { source: 1, target: 2 }, 
-    { source: 1, target: 3 }, { source: 2, target: 3 }, 
-    { source: 0, target: 4 }, { source: 0, target: 5 }, { source: 4, target: 5 }, 
-    { source: 4, target: 6 }, { source: 5, target: 6 },
-    { source: 0, target: 7 }, 
-    { source: 7, target: 1 }  
-  ];
+  // We do NOT add sleeping nodes here anymore. 
+  // They are added only when Simulation starts based on AP detection.
+
+  const links = recalculateLinksBasedOnRange(nodes);
 
   return { nodes, links };
 };
 
-/**
- * The Core Logic: Runs DFS and records every single visual step
- */
+export const calculateFixes = (nodes: Node[], links: Link[], aps: Set<number>): Link[] => {
+  const newLinks: Link[] = [];
+  const existingLinks = new Set<string>();
+
+  const linkId = (u: number, v: number) => u < v ? `${u}-${v}` : `${v}-${u}`;
+  links.forEach(l => {
+      const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+      const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+      existingLinks.add(linkId(s, t));
+  });
+
+  const adj = new Map<number, number[]>();
+  nodes.forEach(n => {
+      if (n.status === 'active') adj.set(n.id, []);
+  });
+  
+  links.forEach(l => {
+     const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+     const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+     if (adj.has(s) && adj.has(t)) {
+        adj.get(s)?.push(t);
+        adj.get(t)?.push(s);
+     }
+  });
+
+  aps.forEach(apId => {
+      const neighbors = adj.get(apId) || [];
+      if (neighbors.length >= 2) {
+          for (let i = 0; i < neighbors.length - 1; i++) {
+              const u = neighbors[i];
+              const v = neighbors[i+1];
+              if (!existingLinks.has(linkId(u, v))) {
+                   newLinks.push({ source: u, target: v, type: 'reinforce' });
+                   existingLinks.add(linkId(u, v));
+              }
+          }
+      }
+  });
+
+  return newLinks;
+};
+
 export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] => {
   const steps: AlgorithmStep[] = [];
   const adj = new Map<number, number[]>();
   
-  // Initialize Graph
-  nodes.forEach(n => adj.set(n.id, []));
-  links.forEach(l => {
-    // Ensure nodes exist in map (handling disconnected components if any)
-    if (!adj.has(l.source)) adj.set(l.source, []);
-    if (!adj.has(l.target)) adj.set(l.target, []);
-    
-    adj.get(l.source)?.push(l.target);
-    adj.get(l.target)?.push(l.source);
+  nodes.forEach(n => {
+      if (n.status === 'active') adj.set(n.id, []);
   });
 
-  // Sort neighbors for deterministic visualization
+  links.forEach(l => {
+    const s = typeof l.source === 'object' ? (l.source as any).id : l.source;
+    const t = typeof l.target === 'object' ? (l.target as any).id : l.target;
+    
+    if (adj.has(s) && adj.has(t)) {
+        adj.get(s)?.push(t);
+        adj.get(t)?.push(s);
+    }
+  });
+
+  const activeNodes = nodes.filter(n => n.status === 'active');
+  if (activeNodes.length === 0) {
+      steps.push({
+          stepId: 0, codeLine: 0, description: "No active nodes.", highlightNode: null, highlightNeighbor: null,
+          state: {
+            discoveryTime: {}, lowLink: {}, parents: {}, visited: new Set(), articulationPoints: new Set(), colors: {}
+          },
+          explanationType: 'info'
+      });
+      return steps;
+  }
+
   nodes.forEach(n => {
     adj.get(n.id)?.sort((a, b) => a - b);
   });
 
-  // State Variables
   let time = 0;
   const disc: Record<number, number> = {};
   const low: Record<number, number> = {};
@@ -149,9 +236,8 @@ export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] 
   const aps = new Set<number>();
   const colors: Record<number, 'white' | 'gray' | 'black' | 'red'> = {};
 
-  nodes.forEach(n => colors[n.id] = 'white');
+  nodes.forEach(n => { if(n.status === 'active') colors[n.id] = 'white'; });
 
-  // Helper to push state
   const pushStep = (line: number, desc: string, u: number | null, v: number | null, type: AlgorithmStep['explanationType'] = 'info') => {
     steps.push({
       stepId: steps.length,
@@ -166,7 +252,7 @@ export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] 
         parents: { ...parent },
         visited: new Set(visited),
         articulationPoints: new Set(aps),
-        colors: { ...colors } // Snapshot colors
+        colors: { ...colors }
       }
     });
   };
@@ -176,42 +262,31 @@ export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] 
     parent[u] = p;
     time++;
     disc[u] = low[u] = time;
-    colors[u] = 'gray'; // Currently processing
+    colors[u] = 'gray'; 
     let children = 0;
-
-    pushStep(2, `Visit Node ${u}. Set Disc[${u}] = Low[${u}] = ${time}.`, u, null, 'info');
+    pushStep(2, `Visit ${u}`, u, null, 'info');
 
     const neighbors = adj.get(u) || [];
 
     for (const v of neighbors) {
-      if (v === p) continue; // Skip parent
-
-      pushStep(4, `Checking neighbor ${v} of Node ${u}...`, u, v, 'info');
+      if (v === p) continue;
+      pushStep(4, `Check ${u}->${v}`, u, v, 'info');
 
       if (visited.has(v)) {
-        // Back Edge
-        const oldLow = low[u];
         low[u] = Math.min(low[u], disc[v]);
-        pushStep(7, `Back-edge to visited Node ${v}! Updating Low[${u}]: min(${oldLow}, Disc[${v}]=${disc[v]}) -> ${low[u]}`, u, v, 'back-edge');
+        pushStep(7, `Back-edge to ${v}`, u, v, 'back-edge');
       } else {
-        // Tree Edge
         children++;
-        pushStep(9, `Node ${v} is unvisited. Recursing DFS...`, u, v, 'info');
-        
+        pushStep(9, `Recurse ${v}`, u, v, 'info');
         dfs(v, u);
-
-        // After return
-        const oldLow = low[u];
         low[u] = Math.min(low[u], low[v]);
-        colors[u] = 'gray'; // Set back to processing after child returns
-        pushStep(10, `Returned to ${u}. Child ${v} has Low ${low[v]}. Updating Low[${u}] -> ${low[u]}`, u, v, 'update');
+        colors[u] = 'gray'; 
+        pushStep(10, `Update Low[${u}]`, u, v, 'update');
 
-        // Check AP
         if (p !== null && low[v] >= disc[u]) {
-          pushStep(11, `Check: Low[${v}] (${low[v]}) >= Disc[${u}] (${disc[u]})? YES.`, u, v, 'found-ap');
           aps.add(u);
           colors[u] = 'red';
-          pushStep(12, `Node ${u} is an Articulation Point! Removing it disconnects ${v}.`, u, v, 'found-ap');
+          pushStep(12, `AP Found: ${u}`, u, v, 'found-ap');
         }
       }
     }
@@ -219,17 +294,15 @@ export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] 
     if (p === null && children > 1) {
       aps.add(u);
       colors[u] = 'red';
-      pushStep(13, `Root Node ${u} has ${children} children > 1. It is an AP.`, u, null, 'found-ap');
+      pushStep(13, `Root AP: ${u}`, u, null, 'found-ap');
     } else if (!aps.has(u)) {
-      colors[u] = 'black'; // Done
-      pushStep(13, `Finished processing Node ${u}.`, u, null, 'info');
+      colors[u] = 'black'; 
+      pushStep(13, `Finish ${u}`, u, null, 'info');
     }
   };
 
-  // Run Algo
-  for (const node of nodes) {
+  for (const node of activeNodes) {
     if (!visited.has(node.id)) {
-      pushStep(1, `Start DFS from unvisited root Node ${node.id}`, node.id, null, 'info');
       dfs(node.id);
     }
   }

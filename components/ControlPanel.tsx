@@ -7,12 +7,19 @@ interface ControlPanelProps {
   totalSteps: number;
   currentStepIndex: number;
   isPlaying: boolean;
+  isSimulating: boolean; // New prop for WSN simulation
+  isFinished: boolean;
+  hasAPs: boolean;
+  isFixed: boolean;
   lang: 'en' | 'ar';
   onNext: () => void;
   onPrev: () => void;
   onPlay: () => void;
   onPause: () => void;
+  onSimulate: () => void; // New handler
+  onStopSim: () => void; // New handler
   onReset: () => void;
+  onFix: () => void;
   onLanguageToggle: () => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
@@ -22,18 +29,24 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
   totalSteps,
   currentStepIndex,
   isPlaying,
+  isSimulating,
+  isFinished,
+  hasAPs,
+  isFixed,
   lang,
   onNext,
   onPrev,
   onPlay,
   onPause,
+  onSimulate,
+  onStopSim,
   onReset,
+  onFix,
   onLanguageToggle,
   onFileUpload
 }) => {
   const t = TRANSLATIONS[lang];
   const fileInputRef = useRef<HTMLInputElement>(null);
-
   const isRTL = lang === 'ar';
 
   return (
@@ -75,6 +88,14 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6 custom-scrollbar">
         
+        {/* Simulation Banner */}
+        {isSimulating && (
+            <div className="bg-amber-900/20 border border-amber-600/50 p-3 rounded animate-pulse">
+                <p className="text-amber-500 text-xs font-bold text-center">⚠ {t.simBtn} - Energy Draining...</p>
+                <p className="text-amber-700 text-[10px] text-center mt-1">{t.energyInfo}</p>
+            </div>
+        )}
+
         {/* 1. Status & Variables */}
         {currentStep && (
           <div className="grid grid-cols-2 gap-3">
@@ -117,17 +138,19 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
 
         {/* 3. Explanation Log */}
         <div className={`p-4 rounded-lg border min-h-[60px] flex items-center shadow-lg transition-colors duration-300 ${
+           isFixed ? 'bg-green-950/30 border-green-500/50' :
            currentStep?.explanationType === 'found-ap' ? 'bg-rose-950/30 border-rose-500/50' :
            currentStep?.explanationType === 'back-edge' ? 'bg-purple-950/30 border-purple-500/50' :
            currentStep?.explanationType === 'update' ? 'bg-blue-950/30 border-blue-500/50' :
            'bg-slate-800/50 border-slate-700'
         }`}>
             <p className={`text-sm font-medium ${
+               isFixed ? 'text-green-300' :
                currentStep?.explanationType === 'found-ap' ? 'text-rose-300' :
                currentStep?.explanationType === 'back-edge' ? 'text-purple-300' :
                'text-slate-300'
             }`}>
-               {currentStep?.description || t.startPrompt}
+               {isFixed ? t.fixedMsg : (currentStep?.description || t.startPrompt)}
             </p>
         </div>
 
@@ -170,40 +193,63 @@ const ControlPanel: React.FC<ControlPanelProps> = ({
       </div>
 
       {/* Controls Footer */}
-      <div className="p-4 border-t border-slate-800 bg-slate-950 grid grid-cols-4 gap-2">
-          <button onClick={onReset} className="col-span-1 py-2 px-1 lg:px-3 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs border border-slate-700 transition">
-             {t.resetBtn}
-          </button>
-          <button onClick={onPrev} disabled={currentStepIndex <= 0} className="col-span-1 py-2 px-1 lg:px-3 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs disabled:opacity-30 transition">
-             {t.prevBtn}
-          </button>
-          
-          {isPlaying ? (
-             <button onClick={onPause} className="col-span-1 py-2 px-1 lg:px-3 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-900/20 transition">
-                {t.pauseBtn}
-             </button>
-          ) : (
-             <button onClick={onPlay} disabled={currentStepIndex >= totalSteps - 1} className="col-span-1 py-2 px-1 lg:px-3 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/20 disabled:opacity-30 transition">
-                {t.playBtn}
-             </button>
-          )}
+      <div className="p-4 border-t border-slate-800 bg-slate-950">
+        <div className="grid grid-cols-4 gap-2">
+            {/* WSN Simulation Controls */}
+            {!isSimulating && !isFixed ? (
+                <button onClick={onSimulate} className="col-span-4 lg:col-span-1 py-2 px-1 rounded bg-amber-900/30 border border-amber-700 hover:bg-amber-800/40 text-amber-500 hover:text-amber-300 font-bold text-xs transition">
+                    {t.simBtn}
+                </button>
+            ) : isSimulating ? (
+                 <button onClick={onStopSim} className="col-span-4 lg:col-span-4 py-2 px-1 rounded bg-red-900/30 border border-red-700 hover:bg-red-800/40 text-red-500 font-bold text-xs transition animate-pulse">
+                    {t.stopSimBtn}
+                </button>
+            ) : null}
 
-          <button onClick={onNext} disabled={currentStepIndex >= totalSteps - 1} className="col-span-1 py-2 px-1 lg:px-3 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-900/20 disabled:opacity-30 transition">
-             {t.nextBtn}
-          </button>
-          
-          <div className="col-span-4 mt-2">
-             <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                <div 
-                   className={`h-full bg-indigo-500 transition-all duration-300`}
-                   style={{ width: `${totalSteps > 0 ? (currentStepIndex / (totalSteps - 1)) * 100 : 0}%` }}
-                ></div>
-             </div>
-             <div className={`flex justify-between mt-1 text-[10px] text-slate-500 font-mono ${isRTL ? 'flex-row-reverse' : ''}`}>
-                <span>{t.start}</span>
-                <span>{t.step} {currentStepIndex + 1} / {totalSteps}</span>
-             </div>
-          </div>
+            {isFinished && hasAPs && !isFixed && !isSimulating ? (
+                <button onClick={onFix} className="col-span-4 lg:col-span-3 py-2 px-3 rounded bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white font-bold text-sm shadow-lg shadow-green-900/30 animate-pulse transition">
+                    {t.fixBtn}
+                </button>
+            ) : !isSimulating && (
+                <>
+                    <button onClick={onReset} className="col-span-1 py-2 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 font-bold text-xs border border-slate-700 transition">
+                        {t.resetBtn}
+                    </button>
+                    <button onClick={onPrev} disabled={currentStepIndex <= 0} className="col-span-1 py-2 px-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs disabled:opacity-30 transition">
+                        {t.prevBtn}
+                    </button>
+                    
+                    {isPlaying ? (
+                        <button onClick={onPause} className="col-span-1 py-2 px-1 rounded bg-amber-600 hover:bg-amber-500 text-white font-bold text-xs shadow-lg shadow-amber-900/20 transition">
+                            {t.pauseBtn}
+                        </button>
+                    ) : (
+                        <button onClick={onPlay} disabled={currentStepIndex >= totalSteps - 1} className="col-span-1 py-2 px-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-lg shadow-emerald-900/20 disabled:opacity-30 transition">
+                            {t.playBtn}
+                        </button>
+                    )}
+                </>
+            )}
+            
+            {!isSimulating && !isFinished && (
+               <button onClick={onNext} disabled={currentStepIndex >= totalSteps - 1} className="col-span-4 lg:col-span-1 py-2 px-1 rounded bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-900/20 disabled:opacity-30 transition">
+                   {t.nextBtn}
+               </button>
+            )}
+        </div>
+        
+        <div className="mt-4">
+            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div 
+                className={`h-full bg-indigo-500 transition-all duration-300`}
+                style={{ width: `${totalSteps > 0 ? (currentStepIndex / (totalSteps - 1)) * 100 : 0}%` }}
+            ></div>
+            </div>
+            <div className={`flex justify-between mt-1 text-[10px] text-slate-500 font-mono ${isRTL ? 'flex-row-reverse' : ''}`}>
+            <span>{t.start}</span>
+            <span>{t.step} {currentStepIndex + 1} / {totalSteps}</span>
+            </div>
+        </div>
       </div>
     </div>
   );
