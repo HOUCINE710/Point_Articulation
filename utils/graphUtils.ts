@@ -14,10 +14,10 @@ export const computeForceLayout = (nodes: {id: number}[], links: {source: number
   const simLinks = links.map(l => ({ source: l.source, target: l.target }));
 
   const simulation = d3.forceSimulation(simNodes as any)
-    .force("link", d3.forceLink(simLinks).id((d: any) => d.id).distance(100))
-    .force("charge", d3.forceManyBody().strength(-300))
+    .force("link", d3.forceLink(simLinks).id((d: any) => d.id).distance(120))
+    .force("charge", d3.forceManyBody().strength(-400))
     .force("center", d3.forceCenter(width / 2, height / 2))
-    .force("collide", d3.forceCollide(40));
+    .force("collide", d3.forceCollide(50));
 
   // Run simulation synchronously to settle positions
   simulation.tick(300); // 300 ticks is usually enough to stabilize
@@ -25,8 +25,8 @@ export const computeForceLayout = (nodes: {id: number}[], links: {source: number
   // Map back to our Node/Link types
   const finalNodes: Node[] = simNodes.map((n: any) => ({
     id: n.id,
-    x: Math.max(20, Math.min(width - 20, n.x)), // Clamp to bounds
-    y: Math.max(20, Math.min(height - 20, n.y))
+    x: Math.max(40, Math.min(width - 40, n.x)), // Clamp to bounds with padding
+    y: Math.max(40, Math.min(height - 40, n.y))
   }));
 
   const finalLinks: Link[] = simLinks.map((l: any) => ({
@@ -56,10 +56,11 @@ export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nod
       throw new Error("Invalid JSON");
     }
   } else {
-    // Text format: "0 1\n1 2"
+    // Text format: "0 1\n1 2" OR "0,1"
     const lines = content.trim().split(/\r?\n/);
     lines.forEach(line => {
-      const parts = line.trim().split(/\s+/);
+      // Split by comma or whitespace
+      const parts = line.trim().split(/[\s,]+/);
       if (parts.length >= 2) {
         rawLinks.push({
           source: Number(parts[0]),
@@ -76,7 +77,13 @@ export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nod
     nodeSet.add(l.target);
   });
   
-  const nodes = Array.from(nodeSet).map(id => ({ id }));
+  // Sort nodes by ID to ensure consistent processing order
+  const nodes = Array.from(nodeSet).sort((a, b) => a - b).map(id => ({ id }));
+  
+  if (nodes.length === 0) {
+    throw new Error("No valid nodes found in file");
+  }
+
   return { nodes, links: rawLinks };
 };
 

@@ -33,6 +33,15 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove(); // Clear canvas
 
+    // Create a Map for O(1) coordinate lookup by Node ID
+    // This fixes the issue where Node ID != Array Index (e.g. nodes 1,2,3 or sparse 10,20)
+    const nodeMap = new Map<number, Node>();
+    nodes.forEach(n => nodeMap.set(n.id, n));
+
+    // Helper to get coords safely
+    const getX = (id: number) => nodeMap.get(id)?.x ?? 0;
+    const getY = (id: number) => nodeMap.get(id)?.y ?? 0;
+
     // --- Arrow Marker ---
     svg.append("defs").append("marker")
       .attr("id", "arrow")
@@ -52,10 +61,10 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       .data(links)
       .enter()
       .append("line")
-      .attr("x1", d => nodes[d.source].x)
-      .attr("y1", d => nodes[d.source].y)
-      .attr("x2", d => nodes[d.target].x)
-      .attr("y2", d => nodes[d.target].y)
+      .attr("x1", d => getX(d.source))
+      .attr("y1", d => getY(d.source))
+      .attr("x2", d => getX(d.target))
+      .attr("y2", d => getY(d.target))
       .attr("stroke", d => {
         // Dynamic Link Coloring
         if (!currentStepState) return COLORS.edgeNormal;
