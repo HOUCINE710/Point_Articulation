@@ -1,0 +1,5 @@
+{
+  "name": "Articulation Point Visualizer",
+  "description": "An interactive educational tool for visualizing Tarjan's Articulation Point finding algorithm using DFS, discovery times, and low-link values.",
+  "requestFramePermissions": []
+}
