@@ -1,7 +1,84 @@
 import { Node, Link, AlgorithmStep, DfsState } from '../types';
+import * as d3 from 'd3';
 
 export const getDistance = (n1: Node, n2: Node) => 
   Math.sqrt(Math.pow(n1.x - n2.x, 2) + Math.pow(n1.y - n2.y, 2));
+
+/**
+ * Calculates node positions using D3 Force Simulation
+ * Useful for uploaded graphs that lack x/y coordinates
+ */
+export const computeForceLayout = (nodes: {id: number}[], links: {source: number, target: number}[], width: number, height: number): { nodes: Node[], links: Link[] } => {
+  // Create copies to avoid mutation issues during simulation
+  const simNodes = nodes.map(n => ({ id: n.id, x: width/2, y: height/2 }));
+  const simLinks = links.map(l => ({ source: l.source, target: l.target }));
+
+  const simulation = d3.forceSimulation(simNodes as any)
+    .force("link", d3.forceLink(simLinks).id((d: any) => d.id).distance(100))
+    .force("charge", d3.forceManyBody().strength(-300))
+    .force("center", d3.forceCenter(width / 2, height / 2))
+    .force("collide", d3.forceCollide(40));
+
+  // Run simulation synchronously to settle positions
+  simulation.tick(300); // 300 ticks is usually enough to stabilize
+
+  // Map back to our Node/Link types
+  const finalNodes: Node[] = simNodes.map((n: any) => ({
+    id: n.id,
+    x: Math.max(20, Math.min(width - 20, n.x)), // Clamp to bounds
+    y: Math.max(20, Math.min(height - 20, n.y))
+  }));
+
+  const finalLinks: Link[] = simLinks.map((l: any) => ({
+    source: typeof l.source === 'object' ? l.source.id : l.source,
+    target: typeof l.target === 'object' ? l.target.id : l.target
+  }));
+
+  return { nodes: finalNodes, links: finalLinks };
+};
+
+/**
+ * Parsing Logic for Uploaded Files
+ */
+export const parseUploadedGraph = (content: string, type: 'json' | 'txt'): { nodes: {id: number}[], links: {source: number, target: number}[] } => {
+  let rawLinks: {source: number, target: number}[] = [];
+  
+  if (type === 'json') {
+    try {
+      const data = JSON.parse(content);
+      // Support { links: [...] } or just [...]
+      const linkArray = Array.isArray(data) ? data : (data.links || []);
+      rawLinks = linkArray.map((l: any) => ({
+        source: Number(l.source),
+        target: Number(l.target)
+      }));
+    } catch (e) {
+      throw new Error("Invalid JSON");
+    }
+  } else {
+    // Text format: "0 1\n1 2"
+    const lines = content.trim().split(/\r?\n/);
+    lines.forEach(line => {
+      const parts = line.trim().split(/\s+/);
+      if (parts.length >= 2) {
+        rawLinks.push({
+          source: Number(parts[0]),
+          target: Number(parts[1])
+        });
+      }
+    });
+  }
+
+  // Extract unique nodes from links
+  const nodeSet = new Set<number>();
+  rawLinks.forEach(l => {
+    nodeSet.add(l.source);
+    nodeSet.add(l.target);
+  });
+  
+  const nodes = Array.from(nodeSet).map(id => ({ id }));
+  return { nodes, links: rawLinks };
+};
 
 /**
  * Generates the butterfly/demo topology
@@ -21,14 +98,13 @@ export const generateScenario = (width: number, height: number): { nodes: Node[]
     { id: 7, x: cx, y: cy - 180 }, // Top hanger
   ];
 
-  // Hardcoded interesting edges for the demo
   const links: Link[] = [
-    { source: 0, target: 1 }, { source: 0, target: 2 }, { source: 1, target: 2 }, // Left Triangle + Bridge
+    { source: 0, target: 1 }, { source: 0, target: 2 }, { source: 1, target: 2 }, 
     { source: 1, target: 3 }, { source: 2, target: 3 }, 
-    { source: 0, target: 4 }, { source: 0, target: 5 }, { source: 4, target: 5 }, // Right Triangle + Bridge
+    { source: 0, target: 4 }, { source: 0, target: 5 }, { source: 4, target: 5 }, 
     { source: 4, target: 6 }, { source: 5, target: 6 },
-    { source: 0, target: 7 }, // The stick on top
-    { source: 7, target: 1 }  // Cycle creator (optional, makes it interesting)
+    { source: 0, target: 7 }, 
+    { source: 7, target: 1 }  
   ];
 
   return { nodes, links };
@@ -44,6 +120,10 @@ export const generateDfsSteps = (nodes: Node[], links: Link[]): AlgorithmStep[] 
   // Initialize Graph
   nodes.forEach(n => adj.set(n.id, []));
   links.forEach(l => {
+    // Ensure nodes exist in map (handling disconnected components if any)
+    if (!adj.has(l.source)) adj.set(l.source, []);
+    if (!adj.has(l.target)) adj.set(l.target, []);
+    
     adj.get(l.source)?.push(l.target);
     adj.get(l.target)?.push(l.source);
   });

@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import * as d3 from 'd3';
 import { Node, Link, DfsState } from '../types';
-import { COLORS } from '../constants';
+import { COLORS, TRANSLATIONS } from '../constants';
 
 interface NetworkGraphProps {
   nodes: Node[];
@@ -11,6 +11,7 @@ interface NetworkGraphProps {
   height: number;
   highlightNode: number | null;
   highlightNeighbor: number | null;
+  lang: 'en' | 'ar';
 }
 
 const NetworkGraph: React.FC<NetworkGraphProps> = ({ 
@@ -20,9 +21,12 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
   width, 
   height,
   highlightNode,
-  highlightNeighbor
+  highlightNeighbor,
+  lang
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
+  const t = TRANSLATIONS[lang];
+  const isRTL = lang === 'ar';
 
   useEffect(() => {
     if (!svgRef.current) return;
@@ -157,32 +161,37 @@ const NetworkGraph: React.FC<NetworkGraphProps> = ({
       .attr("fill", "#64748b")
       .attr("font-size", "8px");
 
-  }, [nodes, links, currentStepState, width, height, highlightNode, highlightNeighbor]);
+  }, [nodes, links, currentStepState, width, height, highlightNode, highlightNeighbor, lang]);
 
   return (
-    <div className="relative border border-slate-800 rounded-lg bg-slate-950 overflow-hidden shadow-2xl">
-      <svg ref={svgRef} width={width} height={height} className="block mx-auto" />
+    <div className="relative border border-slate-800 rounded-lg bg-slate-950 overflow-hidden shadow-2xl w-full h-full flex items-center justify-center">
+      <svg 
+         ref={svgRef} 
+         viewBox={`0 0 ${width} ${height}`}
+         className="w-full h-full max-h-[80vh] max-w-full" 
+         preserveAspectRatio="xMidYMid meet"
+      />
       
       {/* Legend */}
-      <div className="absolute top-4 left-4 bg-slate-900/90 p-3 rounded border border-slate-700 backdrop-blur text-xs">
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-3 h-3 rounded-full bg-slate-300"></div> <span className="text-slate-400">Unvisited</span>
+      <div className={`absolute top-4 ${isRTL ? 'right-4 text-right' : 'left-4 text-left'} bg-slate-900/90 p-3 rounded border border-slate-700 backdrop-blur text-xs pointer-events-none`}>
+        <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <div className="w-3 h-3 rounded-full bg-slate-300"></div> <span className="text-slate-400">{t.legendUnvisited}</span>
         </div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-3 h-3 rounded-full bg-amber-500"></div> <span className="text-slate-400">Processing (Stack)</span>
+        <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <div className="w-3 h-3 rounded-full bg-amber-500"></div> <span className="text-slate-400">{t.legendProcessing}</span>
         </div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-3 h-3 rounded-full bg-emerald-500"></div> <span className="text-slate-400">Visited (Safe)</span>
+        <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <div className="w-3 h-3 rounded-full bg-emerald-500"></div> <span className="text-slate-400">{t.legendVisited}</span>
         </div>
-        <div className="flex items-center gap-2 mb-1">
-          <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></div> <span className="text-rose-400 font-bold">Articulation Point</span>
+        <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+          <div className="w-3 h-3 rounded-full bg-rose-500 animate-pulse"></div> <span className="text-rose-400 font-bold">{t.legendAP}</span>
         </div>
         <div className="mt-2 border-t border-slate-700 pt-2">
-            <div className="flex items-center gap-2 mb-1">
-                <div className="w-4 h-0.5 bg-blue-500"></div> <span className="text-slate-400">Tree Edge</span>
+            <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <div className="w-4 h-0.5 bg-blue-500"></div> <span className="text-slate-400">{t.legendTree}</span>
             </div>
-            <div className="flex items-center gap-2 mb-1">
-                <div className="w-4 h-0.5 border-t-2 border-dashed border-purple-500"></div> <span className="text-slate-400">Back Edge</span>
+            <div className={`flex items-center gap-2 mb-1 ${isRTL ? 'flex-row-reverse' : ''}`}>
+                <div className="w-4 h-0.5 border-t-2 border-dashed border-purple-500"></div> <span className="text-slate-400">{t.legendBack}</span>
             </div>
         </div>
       </div>

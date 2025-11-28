@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from './constants';
-import { generateScenario, generateDfsSteps } from './utils/graphUtils';
+import { generateScenario, generateDfsSteps, parseUploadedGraph, computeForceLayout } from './utils/graphUtils';
 import { Node, Link, AlgorithmStep } from './types';
 import ControlPanel from './components/ControlPanel';
 import NetworkGraph from './components/NetworkGraph';
@@ -12,6 +12,8 @@ const App: React.FC = () => {
   const [steps, setSteps] = useState<AlgorithmStep[]>([]);
   const [currentStepIndex, setCurrentStepIndex] = useState<number>(-1);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [lang, setLang] = useState<'en' | 'ar'>('en');
+  
   const timerRef = useRef<number | null>(null);
 
   // --- Initialization ---
@@ -20,16 +22,46 @@ const App: React.FC = () => {
   }, []);
 
   const initialize = () => {
+    // Default Scenario
     const { nodes: initNodes, links: initLinks } = generateScenario(CANVAS_WIDTH, CANVAS_HEIGHT);
-    setNodes(initNodes);
-    setLinks(initLinks);
+    loadGraph(initNodes, initLinks);
+  };
+
+  const loadGraph = (newNodes: Node[], newLinks: Link[]) => {
+    setNodes(newNodes);
+    setLinks(newLinks);
     
     // Pre-calculate all algorithm steps
-    const algoSteps = generateDfsSteps(initNodes, initLinks);
+    const algoSteps = generateDfsSteps(newNodes, newLinks);
     setSteps(algoSteps);
     setCurrentStepIndex(0);
     setIsPlaying(false);
     if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const content = event.target?.result as string;
+      try {
+        const type = file.name.endsWith('.json') ? 'json' : 'txt';
+        const { nodes: rawNodes, links: rawLinks } = parseUploadedGraph(content, type);
+        
+        // Auto-layout since uploaded files usually don't have x,y
+        const { nodes: layoutNodes, links: layoutLinks } = computeForceLayout(rawNodes, rawLinks, CANVAS_WIDTH, CANVAS_HEIGHT);
+        
+        loadGraph(layoutNodes, layoutLinks);
+      } catch (err) {
+        alert("Error parsing file. Please use valid JSON or Edge List format.");
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+    // Reset input
+    e.target.value = '';
   };
 
   // --- Controls ---
@@ -54,7 +86,7 @@ const App: React.FC = () => {
     if (isPlaying) {
       timerRef.current = window.setInterval(() => {
         nextStep();
-      }, 1500); // 1.5 seconds per step for good readability
+      }, 1500);
     } else {
       if (timerRef.current) clearInterval(timerRef.current);
     }
@@ -66,27 +98,33 @@ const App: React.FC = () => {
   const currentStep = steps[currentStepIndex] || null;
 
   return (
-    <div className="flex h-screen w-screen bg-slate-950 text-slate-200 overflow-hidden font-sans">
+    <div className={`flex flex-col lg:flex-row h-screen w-screen bg-slate-950 text-slate-200 overflow-hidden font-sans ${lang === 'ar' ? 'lg:flex-row-reverse' : ''}`}>
+      
+      {/* Control Panel (Bottom on mobile, Side on desktop) */}
       <ControlPanel 
         currentStep={currentStep}
         totalSteps={steps.length}
         currentStepIndex={currentStepIndex}
         isPlaying={isPlaying}
+        lang={lang}
         onNext={nextStep}
         onPrev={prevStep}
         onPlay={togglePlay}
         onPause={togglePlay}
         onReset={initialize}
+        onLanguageToggle={() => setLang(l => l === 'en' ? 'ar' : 'en')}
+        onFileUpload={handleFileUpload}
       />
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-[#0b101e]">
+      {/* Graph Area (Top on mobile, Main on desktop) */}
+      <div className="flex-1 flex flex-col h-[50vh] lg:h-full overflow-hidden relative bg-[#0b101e] order-first lg:order-none">
          {/* Background Grid */}
          <div className="absolute inset-0 opacity-10 pointer-events-none" style={{
               backgroundImage: 'radial-gradient(#334155 1px, transparent 1px)',
               backgroundSize: '30px 30px'
           }}></div>
 
-        <div className="flex-1 relative flex items-center justify-center p-10">
+        <div className="flex-1 relative flex items-center justify-center p-2 lg:p-10">
           <NetworkGraph 
             nodes={nodes}
             links={links}
@@ -95,6 +133,7 @@ const App: React.FC = () => {
             highlightNeighbor={currentStep?.highlightNeighbor || null}
             width={CANVAS_WIDTH}
             height={CANVAS_HEIGHT}
+            lang={lang}
           />
         </div>
       </div>
